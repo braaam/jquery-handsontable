@@ -159,11 +159,8 @@ Handsontable.helper.randomString = function () {
  * @return {Object}        extended Child
  */
 Handsontable.helper.inherit = function (Child, Parent) {
-  function Bridge() {
-  }
-
-  Bridge.prototype = Parent.prototype;
-  Child.prototype = new Bridge();
+  Parent.prototype.constructor = Parent;
+  Child.prototype = new Parent();
   Child.prototype.constructor = Child;
   return Child;
 };
@@ -181,6 +178,33 @@ Handsontable.helper.extend = function (target, extension) {
   }
 };
 
+Handsontable.helper.getPrototypeOf = function (obj) {
+  var prototype;
+
+  if(typeof obj.__proto__ == "object"){
+    prototype = obj.__proto__;
+  } else {
+    var oldConstructor,
+        constructor = obj.constructor;
+
+    if (typeof obj.constructor == "function") {
+      oldConstructor = constructor;
+
+      if (delete obj.constructor){
+        constructor = obj.constructor; // get real constructor
+        obj.constructor = oldConstructor; // restore constructor
+      }
+
+
+    }
+
+    prototype = constructor ? constructor.prototype : null; // needed for IE
+
+  }
+
+  return prototype;
+};
+
 /**
  * Factory for columns constructors.
  * @param {Object} GridSettings
@@ -188,14 +212,12 @@ Handsontable.helper.extend = function (target, extension) {
  * @return {Object} ColumnSettings
  */
 Handsontable.helper.columnFactory = function (GridSettings, conflictList) {
-  var i = 0, len = conflictList.length, ColumnSettings = function () {
-  };
+  function ColumnSettings () {}
 
-  // Inherit prototype from grid settings
-  ColumnSettings.prototype = new GridSettings();
+  Handsontable.helper.inherit(ColumnSettings, GridSettings);
 
   // Clear conflict settings
-  for (; i < len; i++) {
+  for (var i = 0, len = conflictList.length; i < len; i++) {
     ColumnSettings.prototype[conflictList[i]] = void 0;
   }
 
@@ -386,4 +408,49 @@ Handsontable.helper.proxy = function (fun, context) {
   return function () {
     return fun.apply(context, arguments);
   };
+};
+
+Handsontable.helper.cellMethodLookupFactory = function (methodName) {
+
+  return function cellMethodLookup (row, col) {
+
+    return (function getMethodFromProperties(properties) {
+
+      if (!properties){
+
+        return;                       //method not found
+
+      }
+      else if(properties.hasOwnProperty(methodName)){
+
+        return properties[methodName];  //method defined directly
+
+      } else if(properties.hasOwnProperty('type')){
+
+        var type;
+
+        if(typeof properties.type != 'string' ){
+          throw new Error('Cell type must be a string ');
+        }
+
+        type = translateTypeNameToObject(properties.type);
+
+        return type[methodName]; //method defined in type. if does not exist (eg. validator), returns undefined
+      }
+
+      return getMethodFromProperties(Handsontable.helper.getPrototypeOf(properties));
+
+    })(typeof row == 'number' ? this.getCellMeta(row, col) : row);
+
+  };
+
+  function translateTypeNameToObject(typeName) {
+    var type = Handsontable.cellTypes[typeName];
+
+    if(typeof type == 'undefined'){
+      throw new Error('You declared cell type "' + typeName + '" as a string that is not mapped to a known object. Cell type must be an object or a string mapped to an object in Handsontable.cellTypes');
+    }
+
+    return type;
+  }
 };
